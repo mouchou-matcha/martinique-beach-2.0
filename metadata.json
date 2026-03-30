@@ -1,0 +1,5 @@
+{
+  "name": "Martinique Beach Crowds",
+  "description": "Interactive map predicting beach crowd levels in Martinique based on weather, traffic, flights, and seasonality.",
+  "requestFramePermissions": ["geolocation"]
+}
