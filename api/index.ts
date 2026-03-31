@@ -215,7 +215,7 @@ app.post('/api/detect-boats', async (req, res) => {
           ]
         }
       ],
-      model: 'llama-3.2-90b-vision-preview',
+      model: 'llama-3.2-11b-vision-preview',
       temperature: 0.2,
       max_tokens: 10,
     });
