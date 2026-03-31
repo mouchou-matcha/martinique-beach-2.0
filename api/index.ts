@@ -17,8 +17,6 @@ if (process.env.GROQ_API_KEY) {
   console.warn('GROQ_API_KEY is not set. Groq features will be disabled until configured.');
 }
 
-// Gemini client removed as requested
-
 // Simple in-memory cache to prevent Groq 429 Rate Limit errors
 const reasoningCache = new Map<string, { data: string[], timestamp: number }>();
 const CACHE_TTL = 1000 * 60 * 60; // 1 hour
@@ -70,10 +68,9 @@ app.post('/api/prediction-reasoning', async (req, res) => {
   try {
     const { beachName, factors, score, level } = req.body;
     
-    // Create a unique cache key based on beach and current factors
     const cacheKey = `${beachName}-${level}-${factors.weather}-${factors.isWeekend}-${factors.isNight}-${factors.isWorkingHours}`;
-    
     const cached = reasoningCache.get(cacheKey);
+    
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
       return res.json({ reasoning: cached.data });
     }
@@ -99,28 +96,21 @@ app.post('/api/prediction-reasoning', async (req, res) => {
 
     const chatCompletion = await groq.chat.completions.create({
       messages: [{ role: 'user', content: prompt }],
-      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+      model: 'llama-3.3-70b-versatile', // Modifié ici, Llama 4 n'existe pas
       temperature: 0.7,
       max_tokens: 150,
     });
 
     const reasoning = chatCompletion.choices[0]?.message?.content?.trim() || "Analyse non disponible.";
-    
-    // Split into sentences for the UI
     const reasoningArray = reasoning.split(/(?<=[.!?])\s+/).filter(Boolean);
 
-    // Save to cache
     reasoningCache.set(cacheKey, { data: reasoningArray, timestamp: Date.now() });
-
     res.json({ reasoning: reasoningArray });
   } catch (error: any) {
     console.error('Groq API Error:', error?.message || error);
-    
-    // Fallback if rate limited
     if (error?.status === 429 || error?.message?.includes('429') || error?.message?.includes('Rate limit')) {
        return res.json({ reasoning: ["L'analyse détaillée est temporairement indisponible (limite d'API atteinte).", "Les données de base restent valides."] });
     }
-    
     res.status(500).json({ error: 'Failed to generate reasoning' });
   }
 });
@@ -138,14 +128,12 @@ let tokenExpiry = 0;
 
 async function getAmadeusToken() {
   if (amadeusToken && Date.now() < tokenExpiry) return amadeusToken;
-  
   try {
     const res = await fetch('https://test.api.amadeus.com/v1/security/oauth2/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: `grant_type=client_credentials&client_id=${AMADEUS_KEY}&client_secret=${AMADEUS_SECRET}`
     });
-    
     const data = await res.json();
     if (data.access_token) {
       amadeusToken = data.access_token;
@@ -179,12 +167,7 @@ app.post('/api/flight-volume', async (req, res) => {
         const response = await fetch(`https://test.api.amadeus.com/v2/shopping/flight-offers?originLocationCode=${origin}&destinationLocationCode=${dest}&departureDate=${date}&adults=1&max=10`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
-        if (!response.ok) {
-          if (response.status === 429) {
-            console.warn(`Amadeus 429 Too Many Requests for ${origin}-${dest}`);
-          }
-          return 0;
-        }
+        if (!response.ok) return 0;
         const data = await response.json();
         return data.data ? data.data.length : 0;
       } catch (e) {
@@ -192,7 +175,6 @@ app.post('/api/flight-volume', async (req, res) => {
       }
     };
 
-    // Run requests sequentially with a small delay to avoid 429 Too Many Requests
     for (const hub of hubs) {
       const countIn = await fetchRoute(hub, 'FDF');
       await new Promise(resolve => setTimeout(resolve, 150));
@@ -222,18 +204,15 @@ app.post('/api/flight-volume', async (req, res) => {
 app.post('/api/detect-boats', async (req, res) => {
   try {
     const { imageUrl } = req.body;
-    
     if (!imageUrl) {
       return res.status(400).json({ error: 'imageUrl is required' });
     }
 
-    // Check cache (valid for 10 minutes)
     const cached = boatDetectionCache.get(imageUrl);
     if (cached && Date.now() - cached.timestamp < BOAT_CACHE_TTL) {
       return res.json({ boatCount: cached.count });
     }
 
-    // Fetch image and convert to base64
     const imageResponse = await fetch(imageUrl);
     if (!imageResponse.ok) {
         throw new Error(`Failed to fetch image: ${imageResponse.statusText}`);
@@ -244,7 +223,7 @@ app.post('/api/detect-boats', async (req, res) => {
     const mimeType = imageResponse.headers.get('content-type') || 'image/jpeg';
 
     if (!groq) {
-      return res.json({ boatCount: 0 }); // Fallback if Groq is not configured
+      return res.json({ boatCount: 0 }); 
     }
 
     const chatCompletion = await groq.chat.completions.create({
@@ -257,28 +236,23 @@ app.post('/api/detect-boats', async (req, res) => {
           ]
         }
       ],
-      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+      // CORRECTION CRITIQUE : Modèle Vision Groq
+      model: 'llama-3.2-11b-vision-preview', 
       temperature: 0.2,
       max_tokens: 10,
     });
 
     const content = chatCompletion.choices[0]?.message?.content || "0";
-    // Extract numbers from the response
     const match = content.match(/\d+/);
     const boatCount = match ? parseInt(match[0], 10) : 0;
 
-    // Save to cache
     boatDetectionCache.set(imageUrl, { count: boatCount, timestamp: Date.now() });
-
     res.json({ boatCount });
   } catch (error: any) {
     console.error('Groq Vision API Error:', error?.message || error);
-    
-    // Fallback if rate limited
     if (error?.status === 429 || error?.message?.includes('429')) {
-       return res.json({ boatCount: 12 }); // fallback realistic number
+       return res.json({ boatCount: 12 }); // fallback
     }
-    
     res.status(500).json({ error: 'Failed to detect boats' });
   }
 });
