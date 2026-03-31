@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { X, MapPin, CloudSun, CloudRain, Sun, Car, Users, Camera, CalendarDays, CheckCircle2, History } from 'lucide-react';
+import { X, MapPin, CloudSun, CloudRain, Sun, Car, Users, Camera, CalendarDays, CheckCircle2, History, Sparkles } from 'lucide-react';
 import { Beach, CrowdPrediction } from '../lib/data';
 import { DataMode } from './FilterBar';
 import { cn } from '../lib/utils';
@@ -131,6 +131,24 @@ export function BeachCard({ beach, prediction, onClose, dataMode = 'realtime' }:
                   {prediction.factors.boatCount} bateaux détectés au mouillage actuellement.
                 </p>
               </div>
+            </div>
+          )}
+
+          {reasoning && reasoning.length > 0 && (
+            <div className="bg-gray-50 border border-gray-100 p-4 rounded-2xl space-y-2">
+              <h4 className="font-semibold text-gray-900 flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-purple-500" />
+                Analyse de l'affluence
+                {isReasoningLoading && <span className="text-xs text-gray-400 animate-pulse ml-2">(Analyse en cours...)</span>}
+              </h4>
+              <ul className="space-y-1">
+                {reasoning.map((r, i) => (
+                  <li key={i} className="text-sm text-gray-600 flex items-start gap-2">
+                    <span className="text-purple-400 mt-0.5">•</span>
+                    <span>{r}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
           
