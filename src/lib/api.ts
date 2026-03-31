@@ -257,7 +257,7 @@ app.post('/api/detect-boats', async (req, res) => {
           ]
         }
       ],
-      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+      model: 'llama3-70b-8192',
       temperature: 0.2,
       max_tokens: 10,
     });
