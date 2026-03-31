@@ -141,6 +141,8 @@ export interface PredictionFactors {
   isSchoolHoliday: boolean;
   isWeekend: boolean;
   isAfterSchool: boolean;
+  isWorkingHours: boolean;
+  isNight: boolean;
   hasEvent: boolean;
   boatCount?: number;
   apiSources: {
@@ -173,16 +175,27 @@ export async function predictCrowdLevelAsync(
   date: Date, 
   globalFlightData: { volume: number, isReal: boolean } | null
 ): Promise<CrowdPrediction> {
-  const hour = date.getHours();
-  const day = date.getDay();
+  // Martinique is UTC-4
+  const utcHours = date.getUTCHours();
+  const utcDay = date.getUTCDay();
+  
+  let hour = utcHours - 4;
+  let day = utcDay;
+  if (hour < 0) {
+    hour += 24;
+    day = (day - 1 + 7) % 7;
+  }
+  
   const month = date.getMonth();
   
   const seed = `${beach.id}-${date.getFullYear()}-${month}-${date.getDate()}-${hour}`;
   const random = getSeededRandom(seed);
   
   const isWeekend = day === 0 || day === 6;
-  const isAfterSchool = !isWeekend && hour >= 15 && hour <= 18;
-  const isSchoolHoliday = month === 6 || month === 7;
+  const isSchoolHoliday = month === 6 || month === 7; // July, August
+  const isNight = hour >= 19 || hour < 6;
+  const isWorkingHours = !isWeekend && !isSchoolHoliday && hour >= 8 && hour <= 16;
+  const isAfterSchool = !isWeekend && !isSchoolHoliday && hour > 16 && hour < 19;
   const isRainySeason = month >= 5 && month <= 10;
   
   // Fetch real weather if possible
@@ -213,45 +226,51 @@ export async function predictCrowdLevelAsync(
   let score = 20;
   const reasoning: string[] = [];
 
-  if (isWeekend) {
-    score += 30;
-    reasoning.push("C'est le week-end, affluence locale forte.");
-  }
-  
-  if (isSchoolHoliday) {
-    score += 20;
-    reasoning.push("Période de vacances scolaires.");
-  }
-  
-  if (isAfterSchool) {
-    score += 15;
-    reasoning.push("Sortie des écoles, les familles arrivent.");
-  }
-  
-  if (weatherData.condition === 'sunny') {
-    score += 20;
-    reasoning.push(weatherData.isReal ? "Météo ensoleillée confirmée par OpenWeather." : "Météo ensoleillée idéale.");
-  } else if (weatherData.condition === 'rainy') {
-    score -= 30;
-    reasoning.push(weatherData.isReal ? "Pluie annoncée par OpenWeather, moins de monde." : "Risque d'averses, moins de monde.");
-  }
-  
-  if (trafficLevel === 'high') {
-    score += 10;
-    reasoning.push("Trafic dense vers cette zone (Google Traffic simulé).");
-  }
-  
-  if (flightData.volume > 20) {
-    score += 15;
-    reasoning.push(flightData.isReal ? `Forte affluence touristique (${flightData.volume} vols détectés).` : "Forte affluence touristique récente.");
-  } else if (flightData.volume > 5) {
-    score += 10;
-    reasoning.push(flightData.isReal ? `Affluence touristique modérée (${flightData.volume} vols détectés).` : "Affluence touristique récente.");
-  }
-  
-  if (hasEvent) {
-    score += 40;
-    reasoning.push("Événement local en cours (ex: Tour des Yoles).");
+  if (isNight) {
+    score = 5;
+    reasoning.push("Il fait nuit, les plages sont généralement vides à cette heure.");
+  } else {
+    if (isWeekend) {
+      score += 40;
+      reasoning.push("C'est le week-end, forte affluence locale sur les plages.");
+    } else if (isWorkingHours) {
+      score -= 10;
+      reasoning.push("Heures de travail en semaine, la plage est plus calme.");
+    } else if (isAfterSchool) {
+      score += 25;
+      reasoning.push("Fin de journée et sortie des écoles, les locaux arrivent pour se détendre.");
+    }
+    
+    if (isSchoolHoliday) {
+      score += 25;
+      reasoning.push("Période de grandes vacances, affluence globale augmentée.");
+    }
+    
+    if (weatherData.condition === 'sunny') {
+      score += 20;
+      reasoning.push(weatherData.isReal ? "Météo ensoleillée confirmée par OpenWeather." : "Météo ensoleillée idéale pour la baignade.");
+    } else if (weatherData.condition === 'rainy') {
+      score -= 30;
+      reasoning.push(weatherData.isReal ? "Pluie annoncée par OpenWeather, la plage se vide." : "Risque d'averses, moins de monde prévu.");
+    }
+    
+    if (trafficLevel === 'high') {
+      score += 10;
+      reasoning.push("Trafic dense vers cette zone (Google Traffic simulé).");
+    }
+    
+    if (flightData.volume > 20) {
+      score += 15;
+      reasoning.push(flightData.isReal ? `Forte affluence touristique (${flightData.volume} vols détectés).` : "Forte affluence touristique récente.");
+    } else if (flightData.volume > 5) {
+      score += 10;
+      reasoning.push(flightData.isReal ? `Affluence touristique modérée (${flightData.volume} vols détectés).` : "Affluence touristique récente.");
+    }
+    
+    if (hasEvent) {
+      score += 40;
+      reasoning.push("Événement local en cours (ex: Tour des Yoles).");
+    }
   }
 
   let boatCount;
@@ -298,6 +317,8 @@ export async function predictCrowdLevelAsync(
     isSchoolHoliday,
     isWeekend,
     isAfterSchool,
+    isWorkingHours,
+    isNight,
     hasEvent,
     boatCount,
     apiSources: {
