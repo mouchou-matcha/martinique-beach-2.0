@@ -1,6 +1,5 @@
 import express from 'express';
 import Groq from 'groq-sdk';
-import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -18,10 +17,7 @@ if (process.env.GROQ_API_KEY) {
   console.warn('GROQ_API_KEY is not set. Groq features will be disabled until configured.');
 }
 
-// Initialize Gemini client
-const ai = new GoogleGenAI({ 
-  apiKey: process.env.GEMINI_API_KEY 
-});
+// Gemini client removed as requested
 
 // Simple in-memory cache to prevent Groq 429 Rate Limit errors
 const reasoningCache = new Map<string, { data: string[], timestamp: number }>();
@@ -179,7 +175,7 @@ app.post('/api/flight-volume', async (req, res) => {
   }
 });
 
-// API route to detect boats using Gemini Vision
+// API route to detect boats using Groq Vision
 app.post('/api/detect-boats', async (req, res) => {
   try {
     const { imageUrl } = req.body;
@@ -204,27 +200,26 @@ app.post('/api/detect-boats', async (req, res) => {
     const base64Image = buffer.toString('base64');
     const mimeType = imageResponse.headers.get('content-type') || 'image/jpeg';
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              data: base64Image,
-              mimeType: mimeType,
-            },
-          },
-          {
-            text: "Combien de bateaux vois-tu sur cette image ? Réponds uniquement par le nombre (ex: 5). Si tu n'es pas sûr, donne une estimation.",
-          },
-        ],
-      },
-      config: {
-        temperature: 0.2,
-      }
+    if (!groq) {
+      return res.json({ boatCount: 0 }); // Fallback if Groq is not configured
+    }
+
+    const chatCompletion = await groq.chat.completions.create({
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: "Combien de bateaux vois-tu sur cette image ? Réponds uniquement par le nombre (ex: 5). Si tu n'es pas sûr, donne une estimation." },
+            { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Image}` } }
+          ]
+        }
+      ],
+      model: 'llama-3.2-90b-vision-preview',
+      temperature: 0.2,
+      max_tokens: 10,
     });
 
-    const content = response.text || "0";
+    const content = chatCompletion.choices[0]?.message?.content || "0";
     // Extract numbers from the response
     const match = content.match(/\d+/);
     const boatCount = match ? parseInt(match[0], 10) : 0;
@@ -234,7 +229,7 @@ app.post('/api/detect-boats', async (req, res) => {
 
     res.json({ boatCount });
   } catch (error: any) {
-    console.error('Gemini Vision API Error:', error?.message || error);
+    console.error('Groq Vision API Error:', error?.message || error);
     
     // Fallback if rate limited
     if (error?.status === 429 || error?.message?.includes('429')) {
