@@ -189,6 +189,17 @@ export async function predictCrowdLevelAsync(
   const month = date.getMonth();
   
   const seed = `${beach.id}-${date.getFullYear()}-${month}-${date.getDate()}-${hour}`;
+  
+  const cacheKey = `prediction_cache_${seed}`;
+  try {
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      return JSON.parse(cached);
+    }
+  } catch (e) {
+    // Ignore localStorage errors
+  }
+
   const random = getSeededRandom(seed);
   
   const isWeekend = day === 0 || day === 6;
@@ -350,10 +361,18 @@ export async function predictCrowdLevelAsync(
     console.error("Failed to fetch Groq reasoning:", err);
   }
 
-  return {
+  const result: CrowdPrediction = {
     level,
     score,
     factors,
     reasoning: finalReasoning
   };
+
+  try {
+    localStorage.setItem(cacheKey, JSON.stringify(result));
+  } catch (e) {
+    // Ignore localStorage errors
+  }
+
+  return result;
 }
