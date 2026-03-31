@@ -23,7 +23,49 @@ if (process.env.GROQ_API_KEY) {
 const reasoningCache = new Map<string, { data: string[], timestamp: number }>();
 const CACHE_TTL = 1000 * 60 * 60; // 1 hour
 
-// API route to get reasoning from Groq
+// API route to get reasoning for all beaches at once (1 call per hour)
+app.post('/api/global-reasoning', async (req, res) => {
+  try {
+    const { beaches } = req.body;
+    
+    const prompt = `Tu es un expert en tourisme en Martinique.
+Pour chaque plage de cette liste, donne une très brève explication (1 phrase courte) de son niveau de fréquentation actuel.
+
+Données des plages :
+${beaches.map((b: any) => `- ID: ${b.id}, Niveau: ${b.level}, Météo: ${b.weather}, Week-end: ${b.isWeekend ? 'Oui' : 'Non'}`).join('\n')}
+
+Réponds UNIQUEMENT avec un objet JSON valide où les clés sont les ID des plages et les valeurs sont les explications (tableaux de strings). Exemple:
+{
+  "salines": ["Plage très prisée le week-end, affluence logique."],
+  "diamant": ["Météo nuageuse, la plage est plus calme aujourd'hui."]
+}`;
+
+    if (!groq) {
+      const fallback: Record<string, string[]> = {};
+      beaches.forEach((b: any) => {
+        fallback[b.id] = ["L'analyse détaillée est désactivée car la clé API Groq n'est pas configurée."];
+      });
+      return res.json({ reasonings: fallback });
+    }
+
+    const chatCompletion = await groq.chat.completions.create({
+      messages: [{ role: 'user', content: prompt }],
+      model: 'llama-3.3-70b-specdec',
+      temperature: 0.3,
+      response_format: { type: "json_object" },
+    });
+
+    const content = chatCompletion.choices[0]?.message?.content?.trim() || "{}";
+    const reasonings = JSON.parse(content);
+
+    res.json({ reasonings });
+  } catch (error: any) {
+    console.error('Groq API Error:', error?.message || error);
+    res.status(500).json({ error: 'Failed to generate global reasoning' });
+  }
+});
+
+// API route to get reasoning from Groq (Legacy, kept for compatibility if needed)
 app.post('/api/prediction-reasoning', async (req, res) => {
   try {
     const { beachName, factors, score, level } = req.body;
@@ -57,7 +99,7 @@ app.post('/api/prediction-reasoning', async (req, res) => {
 
     const chatCompletion = await groq.chat.completions.create({
       messages: [{ role: 'user', content: prompt }],
-      model: 'llama-3.3-70b-versatile',
+      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
       temperature: 0.7,
       max_tokens: 150,
     });
@@ -176,7 +218,7 @@ app.post('/api/flight-volume', async (req, res) => {
   }
 });
 
-// API route to detect boats using Groq Vision
+// API route to detect boats using Gemini Vision
 app.post('/api/detect-boats', async (req, res) => {
   try {
     const { imageUrl } = req.body;
