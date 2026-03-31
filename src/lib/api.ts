@@ -10,6 +10,18 @@ export interface WeatherData {
 
 export async function getWeatherForDate(lat: number, lng: number, targetDate: Date): Promise<WeatherData | null> {
   try {
+    const dateStr = format(targetDate, 'yyyy-MM-dd-HH');
+    const cacheKey = `weather_cache_${lat}_${lng}_${dateStr}`;
+    
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } catch (e) {
+      // Ignore localStorage errors
+    }
+
     const res = await fetch(`https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lng}&appid=${OPENWEATHER_KEY}&units=metric`);
     const data = await res.json();
     
@@ -41,16 +53,20 @@ export async function getWeatherForDate(lat: number, lng: number, targetDate: Da
       condition = 'sunny';
     }
 
-    return {
+   const result: WeatherData = {
       temp: Math.round(closest.main.temp),
       condition,
       isReal: true
     };
+
+    try {
+      localStorage.setItem(cacheKey, JSON.stringify(result));
+    } catch (e) {
+      // Ignore localStorage errors
+    }
+
+    return result;
   } catch (e) {
-    console.error("OpenWeather API Error:", e);
-    return null;
-  }
-}
 
 export async function getFlightVolume(targetDate: Date): Promise<{ volume: number, isReal: boolean } | null> {
   try {
