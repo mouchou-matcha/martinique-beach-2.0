@@ -1,4 +1,4 @@
-import { getWeatherForDate, getFlightVolume, WeatherData } from './api';
+import { getWeatherForDate, getFlightVolume, getGlobalReasoning } from './api';
 
 export interface Beach {
   id: string;
@@ -17,7 +17,7 @@ export const beaches: Beach[] = [
     name: "Plage de Madiana",
     lat: 14.6141,
     lng: -61.1042,
-    description: "Plage de sable gris située à Schoelcher, très fréquentée en fin de journée par les étudiants et les familles.",
+    description: "Plage de sable gris située à Schoelcher, très fréquentée en fin de journée par les familles.",
     image: "https://picsum.photos/seed/madiana/800/600",
     travelTimeFromFDF: 10,
   },
@@ -187,49 +187,38 @@ export async function predictCrowdLevelAsync(
   }
   
   const month = date.getMonth();
-  
   const seed = `${beach.id}-${date.getFullYear()}-${month}-${date.getDate()}-${hour}`;
   
   const cacheKey = `prediction_cache_${seed}`;
   try {
     const cached = localStorage.getItem(cacheKey);
-    if (cached) {
-      return JSON.parse(cached);
-    }
-  } catch (e) {
-    // Ignore localStorage errors
-  }
+    if (cached) return JSON.parse(cached);
+  } catch (e) {}
 
   const random = getSeededRandom(seed);
-  
   const isWeekend = day === 0 || day === 6;
-  const isSchoolHoliday = month === 6 || month === 7; // July, August
+  const isSchoolHoliday = month === 6 || month === 7;
   const isNight = hour >= 19 || hour < 6;
   const isWorkingHours = !isWeekend && !isSchoolHoliday && hour >= 8 && hour <= 16;
   const isAfterSchool = !isWeekend && !isSchoolHoliday && hour > 16 && hour < 19;
   const isRainySeason = month >= 5 && month <= 10;
   
-  // Fetch real weather if possible
+  // 🌤 Weather data
   let weatherData = await getWeatherForDate(beach.lat, beach.lng, date);
-  
-  // Fallback to simulated weather if API fails or date is out of range
   if (!weatherData) {
     const simCondition = isRainySeason && random() > 0.6 ? 'rainy' : (random() > 0.3 ? 'sunny' : 'cloudy');
     weatherData = {
       condition: simCondition,
-      temp: simCondition === 'sunny' ? 30 : (simCondition === 'cloudy' ? 28 : 26),
+      temp: simCondition === 'sunny' ? 30 : 27,
       isReal: false
     };
   }
 
-  // Fallback to simulated flights if API fails
-  let flightData = globalFlightData;
-  if (!flightData) {
-    flightData = {
-      volume: Math.floor(random() * 5) + (isSchoolHoliday ? 5 : 0),
-      isReal: false
-    };
-  }
+  // ✈️ Flight data
+  let flightData = globalFlightData || {
+    volume: Math.floor(random() * 5) + (isSchoolHoliday ? 5 : 0),
+    isReal: false
+  };
 
   const trafficLevel: 'low' | 'medium' | 'high' = isWeekend && hour > 10 && hour < 16 ? 'high' : 'medium';
   const hasEvent = random() > 0.85;
@@ -239,70 +228,32 @@ export async function predictCrowdLevelAsync(
 
   if (isNight) {
     score = 5;
-    reasoning.push("Il fait nuit, les plages sont généralement vides à cette heure.");
+    reasoning.push("Il fait nuit, les plages sont généralement vides.");
   } else {
-    if (isWeekend) {
-      score += 40;
-      reasoning.push("C'est le week-end, forte affluence locale sur les plages.");
-    } else if (isWorkingHours) {
-      score -= 10;
-      reasoning.push("Heures de travail en semaine, la plage est plus calme.");
-    } else if (isAfterSchool) {
-      score += 25;
-      reasoning.push("Fin de journée et sortie des écoles, les locaux arrivent pour se détendre.");
-    }
+    if (isWeekend) { score += 40; reasoning.push("C'est le week-end, forte affluence locale."); }
+    else if (isWorkingHours) { score -= 10; reasoning.push("Heures de bureau, plage calme."); }
+    else if (isAfterSchool) { score += 25; reasoning.push("Sortie d'école/travail, arrivée des locaux."); }
     
-    if (isSchoolHoliday) {
-      score += 25;
-      reasoning.push("Période de grandes vacances, affluence globale augmentée.");
-    }
+    if (isSchoolHoliday) { score += 25; reasoning.push("Période de vacances scolaires."); }
+    if (weatherData.condition === 'sunny') score += 20;
+    else if (weatherData.condition === 'rainy') { score -= 30; reasoning.push("Météo pluvieuse prévue."); }
     
-    if (weatherData.condition === 'sunny') {
-      score += 20;
-      reasoning.push(weatherData.isReal ? "Météo ensoleillée confirmée par OpenWeather." : "Météo ensoleillée idéale pour la baignade.");
-    } else if (weatherData.condition === 'rainy') {
-      score -= 30;
-      reasoning.push(weatherData.isReal ? "Pluie annoncée par OpenWeather, la plage se vide." : "Risque d'averses, moins de monde prévu.");
-    }
-    
-    if (trafficLevel === 'high') {
-      score += 10;
-      reasoning.push("Trafic dense vers cette zone (Google Traffic simulé).");
-    }
-    
-    if (flightData.volume > 20) {
-      score += 15;
-      reasoning.push(flightData.isReal ? `Forte affluence touristique (${flightData.volume} vols détectés).` : "Forte affluence touristique récente.");
-    } else if (flightData.volume > 5) {
-      score += 10;
-      reasoning.push(flightData.isReal ? `Affluence touristique modérée (${flightData.volume} vols détectés).` : "Affluence touristique récente.");
-    }
-    
-    if (hasEvent) {
-      score += 40;
-      reasoning.push("Événement local en cours (ex: Tour des Yoles).");
-    }
+    if (flightData.volume > 15) { score += 15; reasoning.push("Forte arrivée de touristes aujourd'hui."); }
+    if (hasEvent) { score += 40; reasoning.push("Événement local ou jour férié détecté."); }
   }
 
-  let boatCount;
+  // 🛥 Boat Detection (Fixed targetDate error)
+  let boatCount = 0;
   if (beach.hasCamera) {
-    const dateStr = targetDate.toISOString().split('T')[0];
-    const hourStr = targetDate.getHours().toString();
+    const dateStr = date.toISOString().split('T')[0]; // FIX: targetDate -> date
+    const hourStr = date.getHours().toString();      // FIX: targetDate -> date
     const boatCacheKey = `boat_detection_${beach.id}_${dateStr}_${hourStr}`;
     
-    let cachedBoatCount = null;
     try {
       const cached = localStorage.getItem(boatCacheKey);
       if (cached) {
-        cachedBoatCount = JSON.parse(cached);
-      }
-    } catch (e) {}
-
-    if (cachedBoatCount !== null) {
-      boatCount = cachedBoatCount;
-    } else {
-      try {
-        // Use the actual thumbnail from the Skyline webcam for Sainte-Anne
+        boatCount = JSON.parse(cached);
+      } else {
         const webcamUrl = "https://cdn.skylinewebcams.com/social5819.jpg";
         const response = await fetch('/api/detect-boats', {
           method: 'POST',
@@ -312,63 +263,45 @@ export async function predictCrowdLevelAsync(
         if (response.ok) {
           const data = await response.json();
           boatCount = data.boatCount;
-          try {
-            localStorage.setItem(boatCacheKey, JSON.stringify(boatCount));
-          } catch (e) {}
-        } else {
-          boatCount = Math.floor(random() * 20); // fallback
+          localStorage.setItem(boatCacheKey, JSON.stringify(boatCount));
         }
-      } catch (err) {
-        console.error("Failed to fetch boat detection:", err);
-        boatCount = Math.floor(random() * 20); // fallback
       }
+    } catch (err) {
+      boatCount = Math.floor(random() * 15);
     }
 
-    if (boatCount > 10) {
+    if (boatCount > 8) {
       score += 15;
-      reasoning.push(`L'IA a détecté ${boatCount} bateaux au mouillage.`);
-    } else {
-      reasoning.push(`L'IA a détecté ${boatCount} bateaux (mouillage calme).`);
+      reasoning.push(`${boatCount} bateaux détectés au mouillage.`);
     }
   }
 
   score = Math.max(0, Math.min(100, score));
-  
   let level: CrowdPrediction['level'] = 'low';
   if (score > 80) level = 'very-high';
   else if (score > 60) level = 'high';
   else if (score > 35) level = 'medium';
 
-  const factors = {
-    weather: weatherData.condition,
-    temperature: weatherData.temp,
-    trafficLevel,
-    flightArrivals: flightData.volume,
-    isSchoolHoliday,
-    isWeekend,
-    isAfterSchool,
-    isWorkingHours,
-    isNight,
-    hasEvent,
-    boatCount,
-    apiSources: {
-      weather: weatherData.isReal,
-      flights: flightData.isReal
-    }
-  };
-
   const result: CrowdPrediction = {
     level,
     score,
-    factors,
+    factors: {
+      weather: weatherData.condition as 'sunny' | 'cloudy' | 'rainy',
+      temperature: weatherData.temp,
+      trafficLevel,
+      flightArrivals: flightData.volume,
+      isSchoolHoliday,
+      isWeekend,
+      isAfterSchool,
+      isWorkingHours,
+      isNight,
+      hasEvent,
+      boatCount,
+      apiSources: { weather: weatherData.isReal, flights: flightData.isReal }
+    },
     reasoning
   };
 
-  try {
-    localStorage.setItem(cacheKey, JSON.stringify(result));
-  } catch (e) {
-    // Ignore localStorage errors
-  }
-
+  try { localStorage.setItem(cacheKey, JSON.stringify(result)); } catch (e) {}
   return result;
 }
