@@ -286,23 +286,42 @@ export async function predictCrowdLevelAsync(
 
   let boatCount;
   if (beach.hasCamera) {
+    const dateStr = targetDate.toISOString().split('T')[0];
+    const hourStr = targetDate.getHours().toString();
+    const boatCacheKey = `boat_detection_${beach.id}_${dateStr}_${hourStr}`;
+    
+    let cachedBoatCount = null;
     try {
-      // Use the actual thumbnail from the Skyline webcam for Sainte-Anne
-      const webcamUrl = "https://cdn.skylinewebcams.com/social5819.jpg";
-      const response = await fetch('/api/detect-boats', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageUrl: webcamUrl })
-      });
-      if (response.ok) {
-        const data = await response.json();
-        boatCount = data.boatCount;
-      } else {
+      const cached = localStorage.getItem(boatCacheKey);
+      if (cached) {
+        cachedBoatCount = JSON.parse(cached);
+      }
+    } catch (e) {}
+
+    if (cachedBoatCount !== null) {
+      boatCount = cachedBoatCount;
+    } else {
+      try {
+        // Use the actual thumbnail from the Skyline webcam for Sainte-Anne
+        const webcamUrl = "https://cdn.skylinewebcams.com/social5819.jpg";
+        const response = await fetch('/api/detect-boats', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageUrl: webcamUrl })
+        });
+        if (response.ok) {
+          const data = await response.json();
+          boatCount = data.boatCount;
+          try {
+            localStorage.setItem(boatCacheKey, JSON.stringify(boatCount));
+          } catch (e) {}
+        } else {
+          boatCount = Math.floor(random() * 20); // fallback
+        }
+      } catch (err) {
+        console.error("Failed to fetch boat detection:", err);
         boatCount = Math.floor(random() * 20); // fallback
       }
-    } catch (err) {
-      console.error("Failed to fetch boat detection:", err);
-      boatCount = Math.floor(random() * 20); // fallback
     }
 
     if (boatCount > 10) {
@@ -338,34 +357,11 @@ export async function predictCrowdLevelAsync(
     }
   };
 
-  // Fetch reasoning from Groq API
-  let finalReasoning = reasoning;
-  try {
-    const response = await fetch('/api/prediction-reasoning', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        beachName: beach.name,
-        factors,
-        score,
-        level
-      })
-    });
-    if (response.ok) {
-      const data = await response.json();
-      if (data.reasoning && data.reasoning.length > 0) {
-        finalReasoning = data.reasoning;
-      }
-    }
-  } catch (err) {
-    console.error("Failed to fetch Groq reasoning:", err);
-  }
-
   const result: CrowdPrediction = {
     level,
     score,
     factors,
-    reasoning: finalReasoning
+    reasoning
   };
 
   try {
