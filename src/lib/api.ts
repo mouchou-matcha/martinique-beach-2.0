@@ -53,7 +53,7 @@ export async function getWeatherForDate(lat: number, lng: number, targetDate: Da
       condition = 'sunny';
     }
 
-   const result: WeatherData = {
+    const result: WeatherData = {
       temp: Math.round(closest.main.temp),
       condition,
       isReal: true
@@ -67,6 +67,10 @@ export async function getWeatherForDate(lat: number, lng: number, targetDate: Da
 
     return result;
   } catch (e) {
+    console.error("OpenWeather API Error:", e);
+    return null;
+  }
+}
 
 export async function getFlightVolume(targetDate: Date): Promise<{ volume: number, isReal: boolean } | null> {
   try {
@@ -114,3 +118,4 @@ export async function getFlightVolume(targetDate: Date): Promise<{ volume: numbe
     return null;
   }
 }
+
