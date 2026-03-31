@@ -10,7 +10,7 @@ import { BeachCard } from './components/BeachCard';
 import { SettingsModal } from './components/SettingsModal';
 import { Beach, CrowdPrediction, predictCrowdLevelAsync, beaches } from './lib/data';
 import { getHistoricalCrowdData } from './lib/historicalData';
-import { getFlightVolume } from './lib/api';
+import { getFlightVolume, getGlobalReasoning } from './lib/api';
 import { Loader2 } from 'lucide-react';
 
 export default function App() {
@@ -41,6 +41,14 @@ export default function App() {
           newPredictions[beach.id] = await predictCrowdLevelAsync(beach, selectedDate, fData);
         }));
         
+        // Fetch global reasoning for all beaches in one API call
+        const reasonings = await getGlobalReasoning(newPredictions, selectedDate);
+        Object.keys(newPredictions).forEach(id => {
+          if (reasonings[id]) {
+            newPredictions[id].reasoning = reasonings[id];
+          }
+        });
+
         if (isMounted) {
           setFlightData(fData);
         }
