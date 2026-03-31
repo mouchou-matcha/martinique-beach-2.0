@@ -29,7 +29,7 @@ app.post('/api/prediction-reasoning', async (req, res) => {
     const { beachName, factors, score, level } = req.body;
     
     // Create a unique cache key based on beach and current factors
-    const cacheKey = `${beachName}-${level}-${factors.weather}-${factors.isWeekend}`;
+    const cacheKey = `${beachName}-${level}-${factors.weather}-${factors.isWeekend}-${factors.isNight}-${factors.isWorkingHours}`;
     
     const cached = reasoningCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
@@ -40,6 +40,7 @@ app.post('/api/prediction-reasoning', async (req, res) => {
     Génère une brève explication (2-3 phrases courtes) pour expliquer pourquoi la plage "${beachName}" a une fréquentation de niveau "${level}" (score: ${score}/100) aujourd'hui.
     
     Facteurs actuels :
+    - Moment de la journée : ${factors.isNight ? 'Nuit' : factors.isWorkingHours ? 'Heures de travail' : factors.isAfterSchool ? 'Fin de journée / Sortie d\'école' : 'Journée'}
     - Météo : ${factors.weather} (${factors.temperature}°C)
     - Trafic : ${factors.trafficLevel}
     - Vols arrivants : ${factors.flightArrivals}
